@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vão Livre</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@400;600&family=Instrument+Serif&display=swap">
+<style>
+/* Layout: cena 3D em tela cheia; marca no topo, ficha da obra como placa no canto inferior */
+:root {
+  --papel: #f3f0e8;
+  --tinta: #1d1c1a;
+  --tinta-2: #57534c;
+  --linha: rgba(29, 28, 26, 0.16);
+  --vermelho: #c8322a;
+  --concreto: #d6dddb;
+  --f-titulo: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --f-texto: "Familjen Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light;
+}
+html, body { height: 100%; }
+body { margin: 0; background: var(--concreto); color: var(--tinta); font-family: var(--f-texto); overflow: hidden; }
+#app { position: fixed; inset: 0; }
+#cena { width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#cena:active { cursor: grabbing; }
+
+.eyebrow { margin: 0; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; color: var(--tinta-2); }
+
+.marca {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  left: max(16px, env(safe-area-inset-left, 0px));
+  pointer-events: none;
+  display: grid; gap: 2px;
+}
+.marca h1 { margin: 0; font-family: var(--f-titulo); font-weight: 400; font-size: clamp(2.2rem, 7vw, 3.4rem); line-height: 0.95; }
+.marca h1::after { content: ""; display: block; width: 28px; height: 4px; margin-top: 10px; background: var(--vermelho); }
+.marca p { margin: 6px 0 0; font-size: 0.85rem; color: var(--tinta-2); }
+
+.barra {
+  position: absolute;
+  top: calc(16px + env(safe-area-inset-top, 0px));
+  right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; max-width: 50%;
+}
+
+button {
+  font: 600 0.85rem/1 var(--f-texto);
+  padding: 11px 14px;
+  border: 1px solid var(--tinta);
+  border-radius: 2px;
+  background: var(--tinta);
+  color: var(--papel);
+  cursor: pointer;
+}
+button.secundario { background: var(--papel); color: var(--tinta); }
+button:hover { background: var(--vermelho); border-color: var(--vermelho); color: var(--papel); }
+button:focus-visible { outline: 2px solid var(--vermelho); outline-offset: 2px; }
+
+.dica {
+  position: absolute;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  margin: 0; padding: 8px 12px;
+  width: max-content; max-width: calc(100% - 32px);
+  font-size: 0.8rem; text-align: center;
+  background: rgba(243, 240, 232, 0.85); color: var(--tinta);
+  pointer-events: none;
+  transition: opacity 0.6s;
+}
+.dica.sumir { opacity: 0; }
+
+#ficha {
+  position: absolute;
+  left: max(16px, env(safe-area-inset-left, 0px));
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  width: min(320px, calc(100% - 32px));
+  padding: 18px 18px 16px;
+  background: var(--papel);
+  border-top: 4px solid var(--vermelho);
+  box-shadow: 0 10px 30px rgba(29, 28, 26, 0.18);
+  display: grid; gap: 10px;
+}
+#ficha h2 { margin: 0; font-family: var(--f-titulo); font-weight: 400; font-size: 2rem; line-height: 1.05; text-wrap: balance; }
+#ficha dl { margin: 0; display: grid; gap: 6px; }
+#ficha dl div { display: grid; grid-template-columns: 82px 1fr; gap: 8px; padding-top: 6px; border-top: 1px solid var(--linha); }
+#ficha dt { font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--tinta-2); padding-top: 2px; }
+#ficha dd { margin: 0; font-size: 0.9rem; min-width: 0; }
+.acoes { display: flex; gap: 8px; margin-top: 4px; }
+.acoes .fechar { margin-left: auto; padding: 8px 12px; font-size: 1.1rem; }
+
+#carregando {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  background: var(--concreto); color: var(--tinta-2);
+  font-size: 0.9rem; letter-spacing: 0.04em;
+}
+
+@media (max-width: 560px) {
+  .barra { top: auto; bottom: calc(64px + env(safe-area-inset-bottom, 0px)); right: max(16px, env(safe-area-inset-right, 0px)); max-width: none; }
+  #ficha:not([hidden]) ~ .barra, .barra:has(~ #ficha:not([hidden])) { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .dica { transition: none; } }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="cena" aria-label="Pavilhão 3D da exposição"></canvas>
+
+  <header class="marca">
+    <span class="eyebrow">Exposição</span>
+    <h1>Vão Livre</h1>
+    <p>Obras de Bhernardo Ramos Vieira</p>
+  </header>
+
+  <div class="barra">
+    <button id="comecar" type="button">Ver a primeira obra</button>
+    <button id="entrada" type="button" class="secundario">Voltar à entrada</button>
+  </div>
+
+  <p class="dica" id="dica">Arraste para olhar · toque numa obra ou no chão para caminhar · WASD no teclado</p>
+
+  <aside id="ficha" hidden aria-live="polite">
+    <p class="eyebrow" id="ficha-num"></p>
+    <h2 id="ficha-titulo"></h2>
+    <dl>
+      <div><dt>Ano</dt><dd id="ficha-ano"></dd></div>
+      <div><dt>Técnica</dt><dd id="ficha-tecnica"></dd></div>
+      <div><dt>Dimensões</dt><dd id="ficha-dimensoes"></dd></div>
+    </dl>
+    <div class="acoes">
+      <button id="anterior" type="button" class="secundario">Anterior</button>
+      <button id="proxima" type="button">Próxima</button>
+      <button id="fechar" type="button" class="fechar" aria-label="Fechar ficha">×</button>
+    </div>
+  </aside>
+
+  <div id="carregando">Montando o pavilhão…</div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
