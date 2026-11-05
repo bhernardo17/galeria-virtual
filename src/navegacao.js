@@ -83,8 +83,9 @@ export class Navegacao {
   }
 
   olhar(dx, dy) {
-    this.yaw += dx * 0.0045;
-    this.pitch = clamp(this.pitch + dy * 0.0035, -0.75, 0.75);
+    // arrastar para a direita vira a vista para a direita; para cima, olha para cima
+    this.yaw -= dx * 0.0045;
+    this.pitch = clamp(this.pitch - dy * 0.0035, -0.75, 0.75);
     if (this.final) { this.final.yaw = null; this.final.pitch = null; }
   }
 
