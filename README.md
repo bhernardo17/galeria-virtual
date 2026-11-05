@@ -7,6 +7,7 @@ Galeria virtual em 3D feita com [three.js](https://threejs.org). Você chega pel
 - **Chegada:** tela de abertura com o pavilhão visto de fora e um voo de câmera pela porta até o salão
 - **Espaço:** concreto aparente com marcas de fôrma, piso de pedra, calçada portuguesa em ondas, sala final em grafite e assoalho
 - **Luz:** sol de fim de tarde entrando pelas fachadas e desenhando a sombra dos caixilhos, foco de luz em cada obra, reflexos e poeira no ar
+- **Mobiliário:** painel de abertura com o texto da exposição, balcão de recepção, luminárias em trilhos e vasos com plantas
 - **Obras:** moldura, ficha com texto curatorial, visualização em tela cheia com zoom
 - **Visita:** tour guiado, mapa da planta clicável, contador de obras vistas, som ambiente com passos e pássaros (sintetizado, sem arquivos)
 
@@ -41,6 +42,7 @@ src/materiais.js      acabamentos do espaço e os geradores de textura
 src/arquitetura.js    planta: praça, salão, sala final, bancos, colisões
 src/atmosfera.js      sol, céu, reflexos, árvores e poeira
 src/cavaletes.js      cavaletes de vidro, molduras e focos de luz
+src/mobiliario.js     painel de abertura, recepção, trilhos de luz e plantas
 src/navegacao.js      câmera, rotas entre ambientes, voo de chegada
 src/audio.js          som ambiente sintetizado
 src/telas.js          composições provisórias e fichas em canvas
@@ -50,7 +52,7 @@ texturas/             texturas reais para os materiais
 
 ## Trocar as obras
 
-Em `src/obras.js`, troque `imagem: null` pelo caminho do arquivo (`'obras/minha-obra.jpg'`) e preencha título, ano, técnica e texto. A obra marcada com `destaque: true` vai para a sala final.
+Em `src/obras.js`, troque `imagem: null` pelo caminho do arquivo (`'obras/minha-obra.jpg'`) e preencha título, ano, técnica e texto. A obra marcada com `destaque: true` vai para a sala final. O texto do painel de abertura fica no mesmo arquivo, em `EXPOSICAO`.
 
 ## Texturas reais
 
