@@ -18,6 +18,15 @@
   O salão comporta até 12 obras.
 */
 
+// Texto do painel de abertura, logo na entrada do salão
+export const EXPOSICAO = {
+  chamada: 'Exposição individual',
+  titulo: 'Vão Livre',
+  artista: 'Bhernardo Ramos Vieira',
+  texto: 'Texto de apresentação a definir. Conte aqui o que reúne estas obras, de onde vieram e o que o visitante vai encontrar no percurso, do salão até a sala final.',
+  rodape: 'Siga pelo vão livre até a sala final, ao fundo.',
+};
+
 const TEXTO_PROVISORIO =
   'Texto curatorial a definir. Use este espaço para contar o contexto da obra: quando nasceu, o que ela investiga e como foi feita.';
 

@@ -6,6 +6,7 @@ import { criarCavaletes, pontoDeVista } from './cavaletes.js';
 import { Navegacao, INICIO } from './navegacao.js';
 import { esperarFontes, numero } from './telas.js';
 import { Som } from './audio.js';
+import { construirMobiliario } from './mobiliario.js';
 
 const $ = (id) => document.getElementById(id);
 const tela = $('cena');
@@ -353,6 +354,7 @@ async function iniciar() {
   pisos = arq.pisos;
   atmosfera = criarAtmosfera(cena, renderer, { leve });
   ({ cavaletes, alvos } = criarCavaletes(cena, OBRAS));
+  arq.colisores.push(...construirMobiliario(cena, cavaletes).colisores);
   const circulos = cavaletes.map((c) => ({ x: c.centro.x, z: c.centro.z, r: 0.85 * c.escala }));
   nav = new Navegacao(camera, arq.colisores, circulos);
 
