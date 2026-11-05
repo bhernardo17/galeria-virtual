@@ -1,379 +1,383 @@
 import * as THREE from 'three';
 import { OBRAS } from './obras.js';
-import { criarMaterial, texturaJanela } from './materiais.js';
-import { texturaPlaceholder, texturaFicha, esperarFontes, numero } from './telas.js';
-
-/* ---------- medidas do pavilhão (metros) ---------- */
-const SALAO = { largura: 34, profundidade: 38, altura: 7.5 };
-const OLHO = 1.65;
-const ENTRADA = { x: 0, z: 16, yaw: 0, pitch: -0.03 };
-const DISTANCIA_OBRA = 3.0;
+import { PLANTA, construirArquitetura } from './arquitetura.js';
+import { criarAtmosfera } from './atmosfera.js';
+import { criarCavaletes, pontoDeVista } from './cavaletes.js';
+import { Navegacao, INICIO } from './navegacao.js';
+import { esperarFontes, numero } from './telas.js';
+import { Som } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 const tela = $('cena');
+const leve = matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 700;
+const TOTAL = OBRAS.length;
 
+/* ---------- renderizador ---------- */
 let renderer;
 try {
-  renderer = new THREE.WebGLRenderer({ canvas: tela, antialias: true });
+  renderer = new THREE.WebGLRenderer({ canvas: tela, antialias: !leve, powerPreference: 'high-performance' });
 } catch (erro) {
-  $('carregando').textContent = 'Seu navegador não abriu o 3D. Verifique se o WebGL está ativado.';
+  $('carregando').textContent = 'Seu navegador não abriu o 3D. Verifique se a aceleração gráfica (WebGL) está ativada.';
   throw erro;
 }
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, leve ? 1.5 : 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.0;
 
 const cena = new THREE.Scene();
-cena.background = new THREE.Color('#d6dddb');
-cena.fog = new THREE.Fog('#d6dddb', 32, 75);
-
-const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 120);
+const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 400);
 camera.rotation.order = 'YXZ';
 
-/* ---------- luz ---------- */
-cena.add(new THREE.HemisphereLight('#eef2f1', '#4a463e', 1.15));
-const sol = new THREE.DirectionalLight('#fff1dc', 2.3);
-sol.position.set(-22, 17, 9);
-sol.castShadow = true;
-sol.shadow.mapSize.set(2048, 2048);
-Object.assign(sol.shadow.camera, { left: -24, right: 24, top: 24, bottom: -24, near: 1, far: 70 });
-sol.shadow.bias = -0.0004;
-cena.add(sol);
+const som = new Som();
+let nav, atmosfera, cavaletes, alvos, pisos;
+const vistas = new Set();
+let atual = -1;
+let tour = null;
 
-/* ---------- arquitetura ---------- */
-function construirSalao() {
-  const { largura: L, profundidade: P, altura: A } = SALAO;
-
-  const piso = new THREE.Mesh(new THREE.PlaneGeometry(L, P), criarMaterial('piso', [L, P]));
-  piso.rotation.x = -Math.PI / 2;
-  piso.receiveShadow = true;
-  piso.name = 'piso';
-  cena.add(piso);
-
-  const teto = new THREE.Mesh(new THREE.PlaneGeometry(L, P), criarMaterial('concretoTeto', [L, P]));
-  teto.rotation.x = Math.PI / 2;
-  teto.position.y = A;
-  cena.add(teto);
-
-  // vigas aparentes atravessando o vão
-  for (let z = -P / 2 + 2; z <= P / 2 - 2; z += 4) {
-    const viga = new THREE.Mesh(new THREE.BoxGeometry(L, 0.9, 0.45), criarMaterial('concretoTeto', [L, 0.9]));
-    viga.position.set(0, A - 0.45, z);
-    viga.castShadow = true;
-    cena.add(viga);
-  }
-
-  // paredes de concreto no fundo e na entrada
-  for (const lado of [-1, 1]) {
-    const parede = new THREE.Mesh(new THREE.PlaneGeometry(L, A), criarMaterial('concreto', [L, A]));
-    parede.position.set(0, A / 2, lado * P / 2);
-    parede.rotation.y = lado === 1 ? Math.PI : 0;
-    parede.receiveShadow = true;
-    cena.add(parede);
-  }
-
-  // fachadas laterais de vidro, com peitoril e caixilhos
-  const vista = new THREE.MeshBasicMaterial({ map: texturaJanela() });
-  const metal = criarMaterial('metal');
-  for (const lado of [-1, 1]) {
-    const x = lado * L / 2;
-    const janela = new THREE.Mesh(new THREE.PlaneGeometry(P, A - 0.6), vista);
-    janela.position.set(x, 0.6 + (A - 0.6) / 2, 0);
-    janela.rotation.y = -lado * Math.PI / 2;
-    cena.add(janela);
-
-    const peitoril = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.6, P), criarMaterial('concreto', [P, 0.6]));
-    peitoril.position.set(x - lado * 0.15, 0.3, 0);
-    peitoril.receiveShadow = true;
-    cena.add(peitoril);
-
-    for (let z = -P / 2; z <= P / 2; z += 3.2) {
-      const montante = new THREE.Mesh(new THREE.BoxGeometry(0.14, A, 0.14), metal);
-      montante.position.set(x - lado * 0.07, A / 2, z);
-      montante.castShadow = true;
-      cena.add(montante);
-    }
-    const travessa = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, P), metal);
-    travessa.position.set(x - lado * 0.06, 2.9, 0);
-    cena.add(travessa);
-  }
-  return piso;
-}
-
-/* ---------- cavaletes de vidro ---------- */
-function posicaoDaObra(i) {
-  const linha = Math.floor(i / 3), coluna = i % 3;
-  return {
-    x: (coluna - 1) * 7 + (linha % 2 ? 2.2 : -1.2),
-    z: 6 - linha * 6.5,
-    giro: (coluna - 1) * -0.1,
-  };
-}
-
-const cavaletes = [];
-const alvosClicaveis = [];
-const carregador = new THREE.TextureLoader();
-
-function criarCavalete(obra, i) {
-  const grupo = new THREE.Group();
-  const { x, z, giro } = obra.posicao ?? posicaoDaObra(i);
-
-  const base = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.42, 0.5), criarMaterial('concreto', [0.5, 0.42]));
-  base.position.y = 0.21;
-  base.castShadow = base.receiveShadow = true;
-  grupo.add(base);
-
-  // cunhas de madeira que prendem o vidro no bloco
-  const madeira = criarMaterial('madeira');
-  for (const lado of [-1, 1]) {
-    const cunha = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.12, 0.07), madeira);
-    cunha.position.set(0, 0.48, lado * 0.055);
-    cunha.castShadow = true;
-    grupo.add(cunha);
-  }
-
-  const vidro = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.4, 0.03), criarMaterial('vidro'));
-  vidro.position.y = 1.57;
-  grupo.add(vidro);
-
-  const altura = 1.3;
-  const quadro = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
-    new THREE.MeshStandardMaterial({ map: texturaPlaceholder(obra, i), roughness: 0.6 }),
-  );
-  ajustarQuadro(quadro, obra.proporcao, altura);
-  quadro.position.set(0, 1.78, 0.02);
-  quadro.castShadow = true;
-  grupo.add(quadro);
-
-  if (obra.imagem) {
-    carregador.load(obra.imagem, (tex) => {
-      tex.colorSpace = THREE.SRGBColorSpace;
-      tex.anisotropy = 8;
-      quadro.material.map = tex;
-      quadro.material.needsUpdate = true;
-      ajustarQuadro(quadro, tex.image.width / tex.image.height, altura);
-    });
-  }
-
-  const ficha = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.42, 0.525),
-    new THREE.MeshStandardMaterial({ map: texturaFicha(obra, i, OBRAS.length), roughness: 0.85 }),
-  );
-  ficha.position.set(0, 1.4, -0.02);
-  ficha.rotation.y = Math.PI;
-  grupo.add(ficha);
-
-  grupo.position.set(x, 0, z);
-  grupo.rotation.y = giro;
-  cena.add(grupo);
-
-  for (const m of [quadro, vidro, ficha, base]) { m.userData.obra = i; alvosClicaveis.push(m); }
-  cavaletes.push({
-    centro: new THREE.Vector3(x, 0, z),
-    frente: new THREE.Vector3(Math.sin(giro), 0, Math.cos(giro)),
-    giro,
-  });
-}
-
-function ajustarQuadro(quadro, proporcao, alturaMax) {
-  let h = alturaMax, w = h * proporcao;
-  if (w > 1.15) { w = 1.15; h = w / proporcao; }
-  quadro.scale.set(w, h, 1);
-}
-
-/* ---------- navegação ---------- */
-const estado = {
-  pos: new THREE.Vector3(ENTRADA.x, OLHO, ENTRADA.z),
-  yaw: ENTRADA.yaw,
-  pitch: ENTRADA.pitch,
-  alvoPos: null,
-  alvoYaw: null,
-  alvoPitch: null,
-  teclas: new Set(),
-  atual: -1,
-};
-
-function irPara(pos, yaw = null, pitch = null) {
-  estado.alvoPos = pos;
-  estado.alvoYaw = yaw;
-  estado.alvoPitch = pitch;
-}
-
-function irParaObra(i) {
-  const c = cavaletes[i];
-  const destino = c.centro.clone().addScaledVector(c.frente, DISTANCIA_OBRA);
-  destino.y = OLHO;
-  irPara(destino, c.giro, 0.03);
-  mostrarFicha(i);
-}
-
-function voltarEntrada() {
-  irPara(new THREE.Vector3(ENTRADA.x, OLHO, ENTRADA.z), ENTRADA.yaw, ENTRADA.pitch);
-  esconderFicha();
-}
-
-const raio = new THREE.Raycaster();
-let piso;
-
-function clique(e) {
-  const r = tela.getBoundingClientRect();
-  const ponto = new THREE.Vector2(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
-  raio.setFromCamera(ponto, camera);
-  const [acerto] = raio.intersectObjects([...alvosClicaveis, piso], false);
-  if (!acerto) return;
-  if (acerto.object.userData.obra !== undefined) {
-    irParaObra(acerto.object.userData.obra);
-  } else if (acerto.object === piso) {
-    const destino = new THREE.Vector3(acerto.point.x, OLHO, acerto.point.z);
-    const dx = destino.x - estado.pos.x, dz = destino.z - estado.pos.z;
-    irPara(destino, Math.atan2(-dx, -dz), null);
-    esconderFicha();
-  }
-}
-
-let arrasto = null;
-tela.addEventListener('pointerdown', (e) => {
-  if (arrasto) return;
-  arrasto = { id: e.pointerId, x: e.clientX, y: e.clientY, total: 0 };
-  tela.setPointerCapture(e.pointerId);
-});
-tela.addEventListener('pointermove', (e) => {
-  if (!arrasto || e.pointerId !== arrasto.id) return;
-  const dx = e.clientX - arrasto.x, dy = e.clientY - arrasto.y;
-  arrasto.x = e.clientX; arrasto.y = e.clientY;
-  arrasto.total += Math.abs(dx) + Math.abs(dy);
-  if (arrasto.total < 6) return;
-  estado.yaw += dx * 0.0045;
-  estado.pitch = THREE.MathUtils.clamp(estado.pitch + dy * 0.0035, -0.6, 0.6);
-  estado.alvoYaw = estado.alvoPitch = null;
-  esconderDica();
-});
-const soltar = (e) => {
-  if (!arrasto || e.pointerId !== arrasto.id) return;
-  if (arrasto.total < 6 && e.type === 'pointerup') clique(e);
-  arrasto = null;
-};
-tela.addEventListener('pointerup', soltar);
-tela.addEventListener('pointercancel', soltar);
-
-const TECLAS = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'];
-window.addEventListener('keydown', (e) => {
-  const k = e.key.toLowerCase();
-  if (k === 'escape') return esconderFicha();
-  if (!TECLAS.includes(k) || e.target.closest?.('button')) return;
-  estado.teclas.add(k);
-  estado.alvoPos = estado.alvoYaw = estado.alvoPitch = null;
-  esconderDica();
-});
-window.addEventListener('keyup', (e) => estado.teclas.delete(e.key.toLowerCase()));
-window.addEventListener('blur', () => estado.teclas.clear());
-
-function anguloMaisCurto(de, para) {
-  return Math.atan2(Math.sin(para - de), Math.cos(para - de));
-}
-
-function atualizar(dt) {
-  const t = estado.teclas;
-  const frente = (t.has('w') || t.has('arrowup') ? 1 : 0) - (t.has('s') || t.has('arrowdown') ? 1 : 0);
-  const lado = (t.has('d') ? 1 : 0) - (t.has('a') ? 1 : 0);
-  const giro = (t.has('arrowleft') ? 1 : 0) - (t.has('arrowright') ? 1 : 0);
-  estado.yaw += giro * dt * 1.6;
-
-  if (frente || lado) {
-    const v = (t.has('shift') ? 6 : 3.2) * dt;
-    const s = Math.sin(estado.yaw), c = Math.cos(estado.yaw);
-    estado.pos.x += (-s * frente + c * lado) * v;
-    estado.pos.z += (-c * frente - s * lado) * v;
-    esconderFicha();
-  }
-
-  const k = 1 - Math.exp(-dt * 3);
-  if (estado.alvoPos) {
-    estado.pos.lerp(estado.alvoPos, k);
-    if (estado.pos.distanceTo(estado.alvoPos) < 0.02) estado.alvoPos = null;
-  }
-  if (estado.alvoYaw !== null) {
-    const d = anguloMaisCurto(estado.yaw, estado.alvoYaw);
-    estado.yaw += d * k;
-    if (Math.abs(d) < 0.002) estado.alvoYaw = null;
-  }
-  if (estado.alvoPitch !== null) {
-    estado.pitch += (estado.alvoPitch - estado.pitch) * k;
-    if (Math.abs(estado.alvoPitch - estado.pitch) < 0.002) estado.alvoPitch = null;
-  }
-
-  // não atravessar os cavaletes nem as paredes
-  for (const c of cavaletes) {
-    const dx = estado.pos.x - c.centro.x, dz = estado.pos.z - c.centro.z;
-    const d = Math.hypot(dx, dz);
-    if (d < 0.9 && d > 0.0001) {
-      estado.pos.x = c.centro.x + (dx / d) * 0.9;
-      estado.pos.z = c.centro.z + (dz / d) * 0.9;
-    }
-  }
-  const mx = SALAO.largura / 2 - 1.2, mz = SALAO.profundidade / 2 - 1.2;
-  estado.pos.x = THREE.MathUtils.clamp(estado.pos.x, -mx, mx);
-  estado.pos.z = THREE.MathUtils.clamp(estado.pos.z, -mz, mz);
-
-  camera.position.copy(estado.pos);
-  camera.rotation.set(estado.pitch, estado.yaw, 0);
-}
-
-/* ---------- interface ---------- */
-const painel = $('ficha');
-
+/* ---------- ficha da obra ---------- */
 function mostrarFicha(i) {
   const obra = OBRAS[i];
-  estado.atual = i;
-  $('ficha-num').textContent = `Obra ${numero(i)} de ${numero(OBRAS.length - 1)}`;
+  atual = i;
+  $('ficha-num').textContent = obra.destaque ? `Sala final · Obra ${numero(i)} de ${numero(TOTAL - 1)}` : `Obra ${numero(i)} de ${numero(TOTAL - 1)}`;
   $('ficha-titulo').textContent = obra.titulo;
-  $('ficha-ano').textContent = obra.ano;
-  $('ficha-tecnica').textContent = obra.tecnica;
-  $('ficha-dimensoes').textContent = obra.dimensoes;
-  painel.hidden = false;
-  esconderDica();
+  $('ficha-meta').textContent = [obra.ano, obra.tecnica, obra.dimensoes].filter((t) => t && t !== '—').join(' · ');
+  $('ficha-texto').textContent = obra.texto ?? '';
+  $('ficha').hidden = false;
+  document.body.classList.add('com-ficha');
 }
 
 function esconderFicha() {
-  painel.hidden = true;
-  estado.atual = -1;
+  $('ficha').hidden = true;
+  document.body.classList.remove('com-ficha');
+  atual = -1;
 }
 
-function esconderDica() {
-  $('dica').classList.add('sumir');
+function marcarVista(i) {
+  vistas.add(i);
+  $('progresso').textContent = `${vistas.size} de ${TOTAL} obras vistas`;
+  document.querySelector(`[data-obra="${i}"]`)?.classList.add('vista');
 }
 
-$('anterior').addEventListener('click', () => irParaObra((Math.max(estado.atual, 0) - 1 + OBRAS.length) % OBRAS.length));
-$('proxima').addEventListener('click', () => irParaObra((estado.atual + 1) % OBRAS.length));
-$('fechar').addEventListener('click', esconderFicha);
-$('entrada').addEventListener('click', voltarEntrada);
-$('comecar').addEventListener('click', () => irParaObra(0));
+function irParaObra(i, aoChegar) {
+  const vista = pontoDeVista(cavaletes[i]);
+  // em tela de celular em pé, recua um pouco e baixa o olhar para a obra ficar acima da ficha
+  if (tela.clientHeight > tela.clientWidth * 1.2) {
+    const c = cavaletes[i];
+    vista.pos.addScaledVector(c.frente, 1.1);
+    vista.pitch = -0.2;
+  }
+  mostrarFicha(i);
+  nav.seguir(vista.pos, {
+    yaw: vista.yaw, pitch: vista.pitch,
+    aoChegar: () => { marcarVista(i); aoChegar?.(); },
+  });
+  esconderDica();
+}
+
+/* ---------- tour guiado ---------- */
+function iniciarTour() {
+  tour = { i: atual >= 0 ? atual : 0, espera: null };
+  $('btn-tour').innerHTML = 'Parar<span class="longo"> tour</span>';
+  $('btn-tour').setAttribute('aria-pressed', 'true');
+  visitarDoTour();
+}
+
+function visitarDoTour() {
+  if (!tour) return;
+  irParaObra(tour.i, () => {
+    if (!tour) return;
+    tour.espera = setTimeout(() => {
+      if (!tour) return;
+      tour.i++;
+      if (tour.i >= TOTAL) {
+        pararTour();
+        avisar('Fim do percurso. Obrigado pela visita.');
+        return;
+      }
+      visitarDoTour();
+    }, 7000);
+  });
+}
+
+function pararTour() {
+  if (!tour) return;
+  clearTimeout(tour.espera);
+  tour = null;
+  $('btn-tour').innerHTML = 'Tour<span class="longo"> guiado</span>';
+  $('btn-tour').setAttribute('aria-pressed', 'false');
+}
+
+/* ---------- avisos e dica ---------- */
+let relogioAviso;
+function avisar(texto) {
+  const el = $('aviso');
+  el.textContent = texto;
+  el.hidden = false;
+  clearTimeout(relogioAviso);
+  relogioAviso = setTimeout(() => { el.hidden = true; }, 4200);
+}
+function esconderDica() { $('dica').classList.add('sumir'); }
+
+/* ---------- visualização em tela cheia ---------- */
+const visor = { escala: 1, x: 0, y: 0, toques: new Map(), inicio: null };
+
+function abrirVisor(i) {
+  const obra = OBRAS[i];
+  const fonte = cavaletes[i].fonte;
+  $('visor-img').src = typeof fonte === 'string' ? fonte : fonte.toDataURL('image/jpeg', 0.92);
+  $('visor-img').alt = obra.titulo;
+  $('visor-titulo').textContent = obra.titulo;
+  $('visor-meta').textContent = [obra.ano, obra.tecnica, obra.dimensoes].filter((t) => t && t !== '—').join(' · ');
+  $('visor-texto').textContent = obra.texto ?? '';
+  zoom(1, 0, 0);
+  $('visor').hidden = false;
+  pararTour();
+  $('visor-fechar').focus();
+}
+
+function fecharVisor() {
+  $('visor').hidden = true;
+  $('ver-perto').focus();
+}
+
+function zoom(escala, x, y) {
+  visor.escala = THREE.MathUtils.clamp(escala, 1, 5);
+  const limite = (visor.escala - 1) * 0.5;
+  const area = $('visor-area').getBoundingClientRect();
+  visor.x = THREE.MathUtils.clamp(x, -area.width * limite, area.width * limite);
+  visor.y = THREE.MathUtils.clamp(y, -area.height * limite, area.height * limite);
+  $('visor-img').style.transform = `translate(${visor.x}px, ${visor.y}px) scale(${visor.escala})`;
+}
+
+function ligarVisor() {
+  const area = $('visor-area');
+  area.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    zoom(visor.escala * (e.deltaY < 0 ? 1.15 : 1 / 1.15), visor.x, visor.y);
+  }, { passive: false });
+  area.addEventListener('dblclick', () => zoom(visor.escala > 1.2 ? 1 : 2.5, 0, 0));
+  area.addEventListener('pointerdown', (e) => {
+    area.setPointerCapture(e.pointerId);
+    visor.toques.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    visor.inicio = null;
+  });
+  area.addEventListener('pointermove', (e) => {
+    const t = visor.toques.get(e.pointerId);
+    if (!t) return;
+    const antes = [...visor.toques.values()].map((p) => ({ ...p }));
+    t.x = e.clientX; t.y = e.clientY;
+    const agora = [...visor.toques.values()];
+    if (agora.length === 1) {
+      zoom(visor.escala, visor.x + (agora[0].x - antes[0].x), visor.y + (agora[0].y - antes[0].y));
+    } else if (agora.length === 2) {
+      const d0 = Math.hypot(antes[0].x - antes[1].x, antes[0].y - antes[1].y);
+      const d1 = Math.hypot(agora[0].x - agora[1].x, agora[0].y - agora[1].y);
+      if (d0 > 0) zoom(visor.escala * (d1 / d0), visor.x, visor.y);
+    }
+  });
+  const soltar = (e) => visor.toques.delete(e.pointerId);
+  area.addEventListener('pointerup', soltar);
+  area.addEventListener('pointercancel', soltar);
+}
+
+/* ---------- mapa da planta ---------- */
+function montarMapa() {
+  const { salao: S, sala: F, porta, passagem } = PLANTA;
+  const ns = 'http://www.w3.org/2000/svg';
+  const svg = $('mapa-svg');
+  const el = (tag, attrs, pai = svg) => {
+    const n = document.createElementNS(ns, tag);
+    for (const [k, val] of Object.entries(attrs)) n.setAttribute(k, val);
+    pai.appendChild(n);
+    return n;
+  };
+  el('rect', { x: -13, y: S.z1, width: 26, height: 12, class: 'praca' });
+  el('rect', { x: S.x0, y: S.z0, width: S.x1 - S.x0, height: S.z1 - S.z0, class: 'ambiente' });
+  el('rect', { x: F.x0, y: F.z0, width: F.x1 - F.x0, height: F.z1 - F.z0, class: 'ambiente escuro' });
+  el('line', { x1: -porta.largura / 2, y1: S.z1, x2: porta.largura / 2, y2: S.z1, class: 'abertura' });
+  el('line', { x1: -passagem.largura / 2, y1: S.z0, x2: passagem.largura / 2, y2: S.z0, class: 'abertura' });
+  cavaletes.forEach((c, i) => {
+    const g = el('g', { class: 'ponto', 'data-obra': i, tabindex: 0, role: 'button', 'aria-label': `Ir para ${OBRAS[i].titulo}` });
+    el('circle', { cx: c.centro.x, cy: c.centro.z, r: 2.4, class: 'toque' }, g);
+    el('circle', { cx: c.centro.x, cy: c.centro.z, r: 1.15 }, g);
+    const ir = () => { pararTour(); irParaObra(i); };
+    g.addEventListener('click', ir);
+    g.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ir(); } });
+  });
+  const voce = el('g', { id: 'voce' });
+  el('path', { d: 'M0 -2.6 L1.7 1.8 L0 0.9 L-1.7 1.8 Z' }, voce);
+}
+
+function atualizarMapa() {
+  const p = nav.modo === 'livre' ? nav.pos : camera.position;
+  $('voce').setAttribute('transform', `translate(${p.x.toFixed(2)} ${p.z.toFixed(2)}) rotate(${(-nav.yaw * 180 / Math.PI).toFixed(1)})`);
+}
+
+/* ---------- entrada pelo mouse, toque e teclado ---------- */
+const raio = new THREE.Raycaster();
+const ponteiro = new THREE.Vector2();
+let arrasto = null;
+let pairar = null;
+
+function lancarRaio(x, y, objetos) {
+  const r = tela.getBoundingClientRect();
+  ponteiro.set(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1);
+  raio.setFromCamera(ponteiro, camera);
+  return raio.intersectObjects(objetos, false)[0];
+}
+
+function clique(x, y) {
+  const acerto = lancarRaio(x, y, [...alvos, ...pisos]);
+  if (!acerto) return;
+  pararTour();
+  const obra = acerto.object.userData.obra;
+  if (obra !== undefined) return irParaObra(obra);
+  if (pisos.includes(acerto.object)) {
+    esconderFicha();
+    nav.seguir(acerto.point);
+    esconderDica();
+  }
+}
+
+function ligarEntradas() {
+  tela.addEventListener('pointerdown', (e) => {
+    if (nav.modo !== 'livre' || arrasto) return;
+    arrasto = { id: e.pointerId, x: e.clientX, y: e.clientY, total: 0 };
+    tela.setPointerCapture(e.pointerId);
+  });
+  tela.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'mouse' && !arrasto) pairar = { x: e.clientX, y: e.clientY };
+    if (!arrasto || e.pointerId !== arrasto.id) return;
+    const dx = e.clientX - arrasto.x, dy = e.clientY - arrasto.y;
+    arrasto.x = e.clientX; arrasto.y = e.clientY;
+    arrasto.total += Math.abs(dx) + Math.abs(dy);
+    if (arrasto.total < 7) return;
+    nav.olhar(dx, dy);
+    pararTour();
+    esconderDica();
+  });
+  const soltar = (e) => {
+    if (!arrasto || e.pointerId !== arrasto.id) return;
+    if (arrasto.total < 7 && e.type === 'pointerup') clique(e.clientX, e.clientY);
+    arrasto = null;
+  };
+  tela.addEventListener('pointerup', soltar);
+  tela.addEventListener('pointercancel', soltar);
+  tela.addEventListener('pointerleave', () => { pairar = null; $('rotulo').hidden = true; });
+
+  const TECLAS = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright', 'shift'];
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'escape') {
+      if (!$('visor').hidden) return fecharVisor();
+      if (nav.modo === 'voo') return nav.pularVoo();
+      return esconderFicha();
+    }
+    if (!$('visor').hidden || nav.modo !== 'livre') return;
+    if (!TECLAS.includes(k) || e.target.closest?.('button, input, a')) return;
+    e.preventDefault();
+    nav.teclas.add(k);
+    esconderDica();
+  });
+  window.addEventListener('keyup', (e) => nav.teclas.delete(e.key.toLowerCase()));
+  window.addEventListener('blur', () => nav.teclas.clear());
+
+  nav.aoMover = () => { pararTour(); if (atual >= 0) esconderFicha(); };
+
+  $('anterior').addEventListener('click', () => { pararTour(); irParaObra((Math.max(atual, 0) - 1 + TOTAL) % TOTAL); });
+  $('proxima').addEventListener('click', () => { pararTour(); irParaObra((atual + 1) % TOTAL); });
+  $('fechar').addEventListener('click', esconderFicha);
+  $('ver-perto').addEventListener('click', () => atual >= 0 && abrirVisor(atual));
+  $('visor-fechar').addEventListener('click', fecharVisor);
+  $('btn-tour').addEventListener('click', () => (tour ? pararTour() : iniciarTour()));
+  $('btn-entrada').addEventListener('click', () => {
+    pararTour();
+    esconderFicha();
+    nav.seguir(INICIO.pos, { yaw: INICIO.yaw, pitch: INICIO.pitch });
+  });
+  $('btn-som').addEventListener('click', () => definirSom(!som.ligado));
+  $('entrar').addEventListener('click', entrar);
+  $('pular').addEventListener('click', () => nav.pularVoo());
+  ligarVisor();
+}
+
+function definirSom(ligado) {
+  som.definir(ligado);
+  $('btn-som').innerHTML = `Som<span class="longo"> ${ligado ? 'ligado' : 'desligado'}</span>`;
+  $('btn-som').setAttribute('aria-pressed', String(ligado));
+  try { localStorage.setItem('vao-livre:som', ligado ? '1' : '0'); } catch {}
+}
+
+/* ---------- chegada ---------- */
+function entrar() {
+  definirSom($('som-inicial').checked);
+  document.body.classList.replace('em-abertura', 'em-voo');
+  const reduzir = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  nav.entrar(reduzir ? 0.01 : 8.5, () => {
+    document.body.classList.replace('em-voo', 'livre');
+    $('btn-tour').focus({ preventScroll: true });
+  });
+}
 
 /* ---------- ciclo ---------- */
 function redimensionar() {
   const { clientWidth: w, clientHeight: h } = tela;
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
-  camera.fov = w < h ? 72 : 62;
+  camera.fov = w < h ? 70 : 58;
   camera.updateProjectionMatrix();
 }
 window.addEventListener('resize', redimensionar);
 
+function atualizarPairar() {
+  if (!pairar || nav.modo !== 'livre') return;
+  const acerto = lancarRaio(pairar.x, pairar.y, alvos);
+  const rotulo = $('rotulo');
+  if (acerto) {
+    rotulo.textContent = OBRAS[acerto.object.userData.obra].titulo;
+    rotulo.style.transform = `translate(${pairar.x + 14}px, ${pairar.y + 14}px)`;
+    rotulo.hidden = false;
+    tela.style.cursor = 'pointer';
+  } else {
+    rotulo.hidden = true;
+    tela.style.cursor = '';
+  }
+  pairar = null;
+}
+
 async function iniciar() {
   await esperarFontes();
-  piso = construirSalao();
-  OBRAS.forEach(criarCavalete);
+  const arq = construirArquitetura(cena);
+  pisos = arq.pisos;
+  atmosfera = criarAtmosfera(cena, renderer, { leve });
+  ({ cavaletes, alvos } = criarCavaletes(cena, OBRAS));
+  const circulos = cavaletes.map((c) => ({ x: c.centro.x, z: c.centro.z, r: 0.85 * c.escala }));
+  nav = new Navegacao(camera, arq.colisores, circulos);
+
+  $('total-obras').textContent = TOTAL;
+  $('progresso').textContent = `0 de ${TOTAL} obras vistas`;
+  try { $('som-inicial').checked = localStorage.getItem('vao-livre:som') !== '0'; } catch {}
+  montarMapa();
+  ligarEntradas();
   redimensionar();
-  $('carregando').hidden = true;
 
   const relogio = new THREE.Clock();
   renderer.setAnimationLoop(() => {
-    atualizar(Math.min(relogio.getDelta(), 0.05));
+    const dt = Math.min(relogio.getDelta(), 0.05);
+    const t = relogio.elapsedTime;
+    nav.atualizar(dt, t);
+    atmosfera.atualizar(dt, t);
+    som.atualizar(dt, { velocidade: nav.modo === 'livre' ? nav.velocidade : 0, zona: nav.zonaAtual });
+    atualizarPairar();
+    atualizarMapa();
     renderer.render(cena, camera);
   });
+
+  $('carregando').hidden = true;
+  $('entrar').disabled = false;
+  $('entrar').focus({ preventScroll: true });
 }
 
 iniciar();
