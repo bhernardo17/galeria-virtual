@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { aleatorio } from './materiais.js';
 
 // Telas desenhadas em canvas: a composição provisória de cada obra
 // e a ficha técnica presa no verso do cavalete.
@@ -8,19 +9,9 @@ export async function esperarFontes() {
   const espera = Promise.all([
     document.fonts.load('60px "Instrument Serif"'),
     document.fonts.load('600 24px "Familjen Grotesk"'),
+    document.fonts.load('400 24px "Familjen Grotesk"'),
   ]);
-  await Promise.race([espera, new Promise((ok) => setTimeout(ok, 2000))]).catch(() => {});
-}
-
-function aleatorio(semente) {
-  let a = semente >>> 0;
-  return () => {
-    a = (a + 0x6d2b79f5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
+  await Promise.race([espera, new Promise((ok) => setTimeout(ok, 2500))]).catch(() => {});
 }
 
 function finalizar(c) {
@@ -32,43 +23,76 @@ function finalizar(c) {
 
 export const numero = (i) => String(i + 1).padStart(2, '0');
 
+// Três estilos de composição se alternam para os lugares reservados
 export function texturaPlaceholder(obra, i) {
-  const L = 600, A = Math.round(600 / obra.proporcao);
+  const L = 900, A = Math.round(900 / obra.proporcao);
   const c = document.createElement('canvas');
   c.width = L; c.height = A;
   const g = c.getContext('2d');
   const r = aleatorio(i * 977 + 13);
   const [fundo, ...cores] = obra.paleta;
+  const cor = () => cores[Math.floor(r() * cores.length)];
 
   g.fillStyle = fundo;
   g.fillRect(0, 0, L, A);
 
-  for (let k = 0; k < 6; k++) {
-    g.fillStyle = cores[k % cores.length];
-    g.globalAlpha = 0.75 + r() * 0.25;
-    const w = L * (0.15 + r() * 0.5), h = A * (0.08 + r() * 0.4);
-    g.fillRect(r() * (L - w), r() * (A - h), w, h);
-  }
-  g.globalAlpha = 1;
-  g.fillStyle = cores[Math.floor(r() * cores.length)];
-  g.beginPath();
-  g.arc(L * (0.25 + r() * 0.5), A * (0.25 + r() * 0.5), L * (0.08 + r() * 0.16), 0, Math.PI * 2);
-  g.fill();
-
-  g.strokeStyle = cores[0];
-  g.lineWidth = 3;
-  for (let k = 0; k < 3; k++) {
+  const estilo = i % 3;
+  if (estilo === 0) {
+    // campos de cor sobrepostos
+    for (let k = 0; k < 7; k++) {
+      g.fillStyle = cores[k % cores.length];
+      g.globalAlpha = 0.7 + r() * 0.3;
+      const w = L * (0.12 + r() * 0.5), h = A * (0.06 + r() * 0.35);
+      g.fillRect(r() * (L - w), r() * (A - h), w, h);
+    }
+    g.globalAlpha = 1;
+    g.fillStyle = cor();
     g.beginPath();
-    g.moveTo(r() * L, r() * A);
-    g.lineTo(r() * L, r() * A);
-    g.stroke();
+    g.arc(L * (0.3 + r() * 0.4), A * (0.3 + r() * 0.4), L * (0.1 + r() * 0.12), 0, Math.PI * 2);
+    g.fill();
+  } else if (estilo === 1) {
+    // arcos concêntricos
+    const cx = L * (0.3 + r() * 0.4), cy = A * (0.35 + r() * 0.3);
+    for (let k = 9; k > 0; k--) {
+      g.fillStyle = cores[k % cores.length];
+      g.beginPath();
+      g.arc(cx, cy, k * L * 0.065, Math.PI * (0.9 + r() * 0.2), Math.PI * (2.1 + r() * 0.2));
+      g.lineTo(cx, cy);
+      g.fill();
+    }
+    g.fillStyle = cor();
+    g.fillRect(0, A * 0.72, L, A * 0.28);
+  } else {
+    // faixas e linhas
+    const n = 5 + Math.floor(r() * 5);
+    for (let k = 0; k < n; k++) {
+      g.fillStyle = cor();
+      const y = (A / n) * k, h = (A / n) * (0.3 + r() * 0.7);
+      g.fillRect(L * 0.1, y + (A / n - h) / 2, L * (0.3 + r() * 0.6), h);
+    }
+    g.strokeStyle = cores[0];
+    g.lineWidth = 6;
+    for (let k = 0; k < 4; k++) {
+      g.beginPath();
+      g.moveTo(r() * L, 0);
+      g.lineTo(r() * L, A);
+      g.stroke();
+    }
   }
 
-  g.fillStyle = 'rgba(0,0,0,0.5)';
-  g.fillRect(0, A - 44, L, 44);
+  // grão de papel
+  const img = g.getImageData(0, 0, L, A);
+  for (let p = 0; p < img.data.length; p += 4) {
+    const n = (r() - 0.5) * 22;
+    img.data[p] += n; img.data[p + 1] += n; img.data[p + 2] += n;
+  }
+  g.putImageData(img, 0, 0);
+
+  g.fillStyle = 'rgba(20,19,17,0.55)';
+  g.fillRect(0, A - 58, L, 58);
   g.fillStyle = '#f4f1ea';
-  g.font = '600 20px "Familjen Grotesk", system-ui, sans-serif';
-  g.fillText(`LUGAR RESERVADO · OBRA ${numero(i)}`, 24, A - 16);
+  g.font = '600 26px "Familjen Grotesk", system-ui, sans-serif';
+  g.fillText(`LUGAR RESERVADO · OBRA ${numero(i)}`, 32, A - 21);
   return finalizar(c);
 }
 
